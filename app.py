@@ -8,6 +8,7 @@ from datetime import datetime
 # --- Constants & Config ---
 st.set_page_config(page_title="博凯小学五（5）班行为管理系统", layout="wide")
 
+REPO_NAME = "ozr2117-design/BJGL"
 STUDENTS_CSV = "students.csv"
 HISTORY_CSV = "history.csv"
 
