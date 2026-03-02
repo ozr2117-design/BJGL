@@ -125,7 +125,8 @@ def display_leaderboard(df):
 
 # --- Main App Execution ---
 def main():
-    st.title("博凯小学五（5）班行为管理系统")
+    st.title("🏆 博凯小学五（5）班行为管理系统")
+    st.markdown("---")
     
     repo = get_github_repo()
     
@@ -146,32 +147,32 @@ def main():
                 st.error("请输入至少一名学生名单！")
         return # 在初始化完成前，不展示其他功能
         
-    # 主面板数据展示
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        display_leaderboard(df)
+    # --- 侧边栏：操作面板 ---
+    with st.sidebar:
+        st.header("⚙️ 控制面板")
+        st.markdown("---")
         
-    with col2:
-        st.subheader("操作面板")
+        st.subheader("📝 积分操作")
         # 多选学生进行操作
-        selected_students = st.multiselect("请选择被操作的学生：", df['姓名'].tolist())
+        selected_students = st.multiselect("第一步：选择被操作的学生", df['姓名'].tolist())
+
         
         if selected_students:
-            st.markdown("### 积分操作")
-            action_type = st.radio("选择操作类型：", ["扣分", "加分"])
+            action_type = st.radio("第二步：选择操作类型", ["扣分", "加分"], horizontal=True)
             
             reason = ""
             score_change = 0
             
             if action_type == "扣分":
-                reason = st.selectbox("选择扣分项：", list(DEDUCT_ITEMS.keys()))
+                reason = st.selectbox("第三步：选择扣分项", list(DEDUCT_ITEMS.keys()))
                 score_change = DEDUCT_ITEMS[reason]
             else:
-                reason = st.selectbox("选择加分项：", list(ADD_ITEMS.keys()))
+                reason = st.selectbox("第三步：选择加分项", list(ADD_ITEMS.keys()))
                 score_change = ADD_ITEMS[reason]
                 
-            if st.button("确 认 提 交 (同步至云端)"):
+            st.info(f"📢 此次操作：**{reason}** ({score_change}分)")
+            
+            if st.button("确 认 提 交 (同步至云端)", use_container_width=True, type="primary"):
                 # 开始修改 DataFrame
                 for student in selected_students:
                     idx = df[df['姓名'] == student].index[0]
@@ -191,8 +192,9 @@ def main():
                 st.rerun()
                 
         st.markdown("---")
-        st.subheader("周结算功能")
-        if st.button("开启新的一周 (危险操作)"):
+        st.subheader("🗓️ 周末结算归档")
+        st.caption("每周重新开始时，请点击以下按钮归档本周数据并重置基础积分。")
+        if st.button("开启新的一周 (危险操作)", use_container_width=True):
             import datetime
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
@@ -215,6 +217,23 @@ def main():
             
             update_file_in_github(repo, STUDENTS_CSV, df, f"新的一周开始复位数据 {now_str}", sha)
             st.rerun()
+
+    # --- 主区域：数据概览与排行榜 ---
+    # 顶部数据概览
+    total_students = len(df)
+    locked_count = len(df[df['本周状态'] == STATUS_LOCKED])
+    banned_count = len(df[df['本周状态'] == STATUS_BANNED])
+    
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("班级总人数", f"{total_students} 人")
+    metric_cols[1].metric("正常游戏人数", f"{total_students - locked_count - banned_count} 人")
+    metric_cols[2].metric("本周被锁屏", f"{locked_count} 人", delta_color="inverse")
+    metric_cols[3].metric("累计永久封号", f"{banned_count} 人", delta_color="inverse")
+    
+    st.markdown("---")
+    
+    # 居中展示排行榜
+    display_leaderboard(df)
 
 if __name__ == "__main__":
     main()
