@@ -11,7 +11,7 @@ import os
 # --- Constants & Config ---
 st.set_page_config(page_title="博凯小学五（5）班行为管理系统", layout="wide")
 
-REPO_NAME = "BJGL"  # 假设仓库名与文件夹同名
+REPO_NAME = "ozr2117-design/BJGL"  # 仓库完整路径
 STUDENTS_CSV = "students.csv"
 HISTORY_CSV = "history.csv"
 
@@ -78,8 +78,7 @@ def get_github_repo():
         
     g = Github(token)
     try:
-        user = g.get_user()
-        repo = user.get_repo(REPO_NAME)
+        repo = g.get_repo(REPO_NAME)
         return repo
     except Exception as e:
         st.error(f"连接 GitHub 仓库失败: {e}")
