@@ -1,17 +1,11 @@
 import streamlit as st
 import pandas as pd
-from github import Github
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
-from io import StringIO
-from datetime import datetime
 import os
+from datetime import datetime
 
 # --- Constants & Config ---
 st.set_page_config(page_title="博凯小学五（5）班行为管理系统", layout="wide")
 
-REPO_NAME = "ozr2117-design/BJGL"  # 仓库完整路径
 STUDENTS_CSV = "students.csv"
 HISTORY_CSV = "history.csv"
 
@@ -33,84 +27,29 @@ STATUS_NORMAL = "正常"
 STATUS_LOCKED = "物理锁屏"
 STATUS_BANNED = "永久封号"
 
-# --- Authentication Setup ---
-# Initialize session state for authenticator configuration
-if 'config' not in st.session_state:
-    st.session_state['config'] = {
-        'credentials': {
-            'usernames': {
-                'admin': {
-                    'email': 'admin@bokai.edu',
-                    'name': 'Administrator',
-                    'password': 'bokai888'
-                }
-            }
-        },
-        'cookie': {
-            'expiry_days': 30,
-            'key': 'some_signature_key',
-            'name': 'some_cookie_name'
-        },
-        'preauthorized': {
-            'emails': []
-        }
-    }
-    stauth.Hasher.hash_passwords(st.session_state['config']['credentials'])
-
-authenticator = stauth.Authenticate(
-    st.session_state['config']['credentials'],
-    st.session_state['config']['cookie']['name'],
-    st.session_state['config']['cookie']['key'],
-    st.session_state['config']['cookie']['expiry_days'],
-    st.session_state['config']['preauthorized']
-)
-
-# --- GitHub Integration ---
-@st.cache_resource
-def get_github_repo():
-    if "GITHUB_TOKEN" in st.secrets:
-        token = st.secrets["GITHUB_TOKEN"]
-    elif "GITHUB_TOKEN" in os.environ:
-         token = os.environ["GITHUB_TOKEN"]
-    else:
-        st.error("无法找到 GITHUB_TOKEN 配置，请确保已在 .streamlit/secrets.toml 中设置！")
-        st.stop()
-        
-    g = Github(token)
+# --- Local File Integration ---
+def get_file_content(filepath):
+    """从本地读取 CSV 文件内容，返回 DataFrame"""
+    if not os.path.exists(filepath):
+        return None
     try:
-        repo = g.get_repo(REPO_NAME)
-        return repo
-    except Exception as e:
-        st.error(f"连接 GitHub 仓库失败: {e}")
-        st.stop()
-
-def get_file_content(repo, filepath):
-    """从 GitHub 读取 CSV 文件内容，返回 DataFrame"""
-    try:
-        contents = repo.get_contents(filepath)
-        csv_str = contents.decoded_content.decode("utf-8")
-        df = pd.read_csv(StringIO(csv_str))
+        df = pd.read_csv(filepath)
         # 确保关键列存在且类型正确
         if '本周剩余时长' in df.columns:
             df['本周剩余时长'] = pd.to_numeric(df['本周剩余时长'], errors='coerce').fillna(20).astype(int)
         if '严重违规次数' in df.columns:
             df['严重违规次数'] = pd.to_numeric(df['严重违规次数'], errors='coerce').fillna(0).astype(int)
-        return df, contents.sha
+        return df
     except Exception as e:
-        # 文件不存在
-        return None, None
+        return None
 
-def update_file_in_github(repo, filepath, df, commit_message, sha=None):
-    """将 DataFrame 上传或更新到 GitHub 的 CSV 文件"""
-    csv_str = df.to_csv(index=False)
+def save_file_locally(filepath, df):
+    """将 DataFrame 保存到本地的 CSV 文件"""
     try:
-        if sha:
-            repo.update_file(filepath, commit_message, csv_str, sha)
-        else:
-            repo.create_file(filepath, commit_message, csv_str)
-        st.success(f"成功将数据保存至 GitHub: {filepath}!")
+        df.to_csv(filepath, index=False)
+        st.success(f"成功保存数据: {filepath}!")
     except Exception as e:
-        st.error(f"保存数据至 GitHub 失败: {e}")
+        st.error(f"保存数据失败: {e}")
 
 # --- Core Logic ---
 def init_students_df(names_text):
@@ -162,35 +101,19 @@ def display_leaderboard(df):
 # --- Main App Execution ---
 def main():
     st.title("博凯小学五（5）班行为管理系统")
-    repo = get_github_repo()
     
     # 尝试加载当前数据
-    df, sha = get_file_content(repo, STUDENTS_CSV)
-    
-    # 访客视图 (未登录)
-    if not st.session_state.get('authentication_status'):
-        if df is not None:
-            display_leaderboard(df)
-            st.info("如需修改数据，请管理员登录。")
-        else:
-            st.warning("系统尚未初始化，请联系管理员导入名单。")
-
-        authenticator.login('管理员登录', 'sidebar')
-        return
-
-    # --- 管理员视图 ---
-    authenticator.logout('退出登录', 'sidebar', key='unique_key')
-    st.sidebar.title(f"欢迎, {st.session_state['name']}!")
+    df = get_file_content(STUDENTS_CSV)
     
     # 初始化流程
     if df is None:
-        st.warning(f"由于尚未在云端找到 `{STUDENTS_CSV}` 文件，系统需要初始化。")
+        st.warning(f"由于尚未找到 `{STUDENTS_CSV}` 文件，系统需要初始化。")
         st.subheader("批量导入名单")
         names_input = st.text_area("请输入全班学生名单（一行一个姓名）：", height=300)
-        if st.button("初始化名单并提交至云端"):
+        if st.button("初始化名单并保存"):
             new_df = init_students_df(names_input)
             if new_df is not None:
-                update_file_in_github(repo, STUDENTS_CSV, new_df, "初始化学生名单", sha=None)
+                save_file_locally(STUDENTS_CSV, new_df)
                 st.rerun() # 重新加载数据
             else:
                 st.error("请输入至少一名学生名单！")
@@ -221,7 +144,7 @@ def main():
                 reason = st.selectbox("选择加分项：", list(ADD_ITEMS.keys()))
                 score_change = ADD_ITEMS[reason]
                 
-            if st.button("确 认 提 交 (同步至云端)"):
+            if st.button("确 认 提 交"):
                 # 开始修改 DataFrame
                 for student in selected_students:
                     idx = df[df['姓名'] == student].index[0]
@@ -235,9 +158,8 @@ def main():
                 # 统一重新评估状态
                 df['本周状态'] = df.apply(evaluate_status, axis=1)
                 
-                # 提交到 GitHub
-                commit_msg = f"更新数据：操作项 [{reason}]，学生 {', '.join(selected_students)}"
-                update_file_in_github(repo, STUDENTS_CSV, df, commit_msg, sha)
+                # 提交保存
+                save_file_locally(STUDENTS_CSV, df)
                 st.rerun()
                 
         st.markdown("---")
@@ -247,7 +169,7 @@ def main():
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # 第一步：备份当前数据到 history.csv
-            history_df, hist_sha = get_file_content(repo, HISTORY_CSV)
+            history_df = get_file_content(HISTORY_CSV)
             current_archive = df.copy()
             current_archive['归档时间'] = now_str
             
@@ -256,14 +178,14 @@ def main():
             else:
                 new_history_df = current_archive
                 
-            update_file_in_github(repo, HISTORY_CSV, new_history_df, f"备份周结算数据 {now_str}", hist_sha)
+            save_file_locally(HISTORY_CSV, new_history_df)
             
             # 第二步：重置本周数据
             df['本周剩余时长'] = 20
             # 严重违规次数不变，状态重新评估（封号保持封号，其他重置为20的恢复正常）
             df['本周状态'] = df.apply(evaluate_status, axis=1)
             
-            update_file_in_github(repo, STUDENTS_CSV, df, f"新的一周开始复位数据 {now_str}", sha)
+            save_file_locally(STUDENTS_CSV, df)
             st.rerun()
 
 if __name__ == "__main__":
